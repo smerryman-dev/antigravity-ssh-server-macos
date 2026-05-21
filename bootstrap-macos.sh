@@ -36,7 +36,11 @@ if [ -z "$ARG_COMMIT_HASH" ] && [ -f "$LOCAL_APP_RESOURCES/product.json" ]; then
     VSCODE_VERSION=$(node -p "require('$LOCAL_APP_RESOURCES/package.json').version")
     COMMIT_HASH=$(node -p "require('$LOCAL_APP_RESOURCES/product.json').commit")
     if [ "$VSCODE_VERSION" = "1.107.0" ]; then
-        IDE_VERSION="2.0.1"
+        if [ "$COMMIT_HASH" = "bd0307c171dbaf4cd6135192515e160af7d9d132" ]; then
+            IDE_VERSION="2.0.2"
+        else
+            IDE_VERSION="2.0.1"
+        fi
     fi
 else
     if [ -n "$ARG_IDE_VERSION" ]; then
@@ -87,7 +91,7 @@ CDN_VERSION="${IDE_VERSION}-${COMMIT_HASH}"
 echo "  Downloading linux-arm server tarball for version ${CDN_VERSION}..."
 curl --connect-timeout 30 --retry 3 --location --fail \
   -o "$TEMP_DIR/antigravity-linux.tar.gz" \
-  "https://edgedl.me.gvt1.com/edgedl/release2/j0qc3/antigravity/stable/${CDN_VERSION}/linux-arm/Antigravity-reh.tar.gz"
+  "https://edgedl.me.gvt1.com/edgedl/release2/j0qc3/antigravity/stable/${CDN_VERSION}/linux-arm/Antigravity%20IDE-reh.tar.gz"
 
 echo -e "${GREEN}  ✓ Downloaded server tarball ($(du -h "$TEMP_DIR/antigravity-linux.tar.gz" | cut -f1))${NC}"
 
