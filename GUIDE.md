@@ -36,6 +36,28 @@ This is crucial - we don't need an old version skeleton. We can use the current 
 4. **Binary Replacement**: Only the Node.js binary needs to be platform-specific
 5. **Native Modules**: Can be rebuilt using `npm rebuild`
 
+## Recommended Solution: Native Host Bootstrap (bootstrap-macos.sh)
+
+For hybrid client-host architectures (e.g., an Intel MacBook Pro client connecting to an Apple Silicon M1/M2 Mac Mini host), running the bootstrap script natively on the target host is the most robust and secure approach. This prevents copying incompatible Intel binaries to an ARM host.
+
+The `bootstrap-macos.sh` script automates this process natively on the target macOS host:
+1. **Downloads the official `linux-arm` tarball** (using the release version 2.0.1 URL) to the host.
+2. **Extracts it** to the correct release directory: `~/.antigravity-ide-server/bin/2.0.1-bf9a033f33934fb4496d7eebed52486272437c3a`.
+3. **Replaces the Node.js binary** with a native macOS Darwin arm64 build (`v22.11.0`).
+4. **Surgically extracts native modules** (`spdlog.node`, `watcher.node`, `pty.node`) from the local `/Applications/Antigravity IDE.app` bundle on the host. These are already compiled natively for macOS Darwin arm64 and properly signed, eliminating compilation or Gatekeeper blockers.
+5. **Updates product configurations and metadata** (`product.json` commit key and tunnel credentials).
+6. **Signs all binaries and native modules** and clears quarantine flags using macOS `codesign` and `xattr`.
+7. **Establishes backward-compatible symlinks** between the old folder `~/.antigravity-server` and the modern folder `~/.antigravity-ide-server`.
+
+### How to Run Natively on the Host:
+```bash
+cd antigravity-ssh-server-macos
+chmod +x bootstrap-macos.sh
+./bootstrap-macos.sh
+```
+
+---
+
 ## Manual Installation Steps
 
 ### Prerequisites
@@ -50,10 +72,10 @@ brew install wget
 From the Antigravity client installation script:
 
 ```bash
-DISTRO_IDE_VERSION="1.23.2"
-DISTRO_COMMIT="15487b3041e65228cae24980a3f796c905ef582c"
+DISTRO_IDE_VERSION="2.0.1"
+DISTRO_COMMIT="bf9a033f33934fb4496d7eebed52486272437c3a"
 COMMIT_ID="${DISTRO_IDE_VERSION}-${DISTRO_COMMIT}"
-# Result: "1.23.2-15487b3041e65228cae24980a3f796c905ef582c"
+# Result: "2.0.1-bf9a033f33934fb4496d7eebed52486272437c3a"
 ```
 
 ### Step 2: Download linux-arm Server
@@ -72,7 +94,7 @@ https://edgedl.me.gvt1.com/edgedl/antigravity/stable/${COMMIT_ID}/linux-arm/Anti
 ### Step 3: Extract Server
 
 ```bash
-SERVER_DIR="$HOME/.antigravity-server/bin/${COMMIT_ID}"
+SERVER_DIR="$HOME/.antigravity-ide-server/bin/2.0.1-${DISTRO_COMMIT}"
 mkdir -p "$SERVER_DIR"
 tar -xzf /tmp/antigravity.tar.gz -C "$SERVER_DIR" --strip-components 1
 ```
@@ -211,11 +233,11 @@ The Antigravity client sends this bash script to the server:
 
 ```bash
 # Key variables from client script
-DISTRO_IDE_VERSION="1.20.5"
-DISTRO_COMMIT="4603c2a412f8c7cca552ff00db91c3ee787016ff"
+DISTRO_IDE_VERSION="2.0.1"
+DISTRO_COMMIT="bf9a033f33934fb4496d7eebed52486272437c3a"
 DISTRO_ID="$DISTRO_COMMIT"
-SERVER_DIR="$HOME/.antigravity-server/bin/$DISTRO_IDE_VERSION-$DISTRO_ID"
-SERVER_SCRIPT="$SERVER_DIR/bin/antigravity-server"
+SERVER_DIR="$HOME/.antigravity-ide-server/bin/2.0.1-$DISTRO_ID"
+SERVER_SCRIPT="$SERVER_DIR/bin/antigravity-ide-server"
 
 # Server startup command
 $SERVER_SCRIPT --start-server \
@@ -229,7 +251,7 @@ $SERVER_SCRIPT --start-server \
 
 ### Entry Point Script
 
-`bin/antigravity-server`:
+`bin/antigravity-ide-server`:
 ```bash
 #!/bin/bash
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -309,18 +331,19 @@ https://edgedl.me.gvt1.com/edgedl/release2/j0qc3/antigravity/stable/{COMMIT_ID}/
 
 | COMMIT_ID | PLATFORM | ARCH | Status |
 |-----------|----------|------|--------|
-| 1.20.5-* | linux | arm | ✅ 200 |
-| 1.20.5-* | linux | arm64 | ✅ 200 |
-| 1.20.5-* | linux | x64 | ✅ 200 |
-| 1.20.5-* | darwin | arm | ❌ 404 |
-| 1.20.5-* | darwin | arm64 | ❌ 404 |
+| 2.0.1-* | linux | arm | ✅ 200 |
+| 2.0.1-* | linux | arm64 | ✅ 200 |
+| 2.0.1-* | linux | x64 | ✅ 200 |
+| 2.0.1-* | darwin | arm | ❌ 404 |
+| 2.0.1-* | darwin | arm64 | ❌ 404 |
 
 ## Version Compatibility
 
 ### Tested Versions
 
-- **Antigravity**: 1.107.0
-- **Commit**: 4603c2a412f8c7cca552ff00db91c3ee787016ff
+- **Antigravity**: 2.0.1
+- **VS Code Engine**: 1.107.0
+- **Commit**: bf9a033f33934fb4496d7eebed52486272437c3a
 - **Node.js**: v22.11.0
 - **macOS**: darwin-arm64 (M1/M2/M3)
 

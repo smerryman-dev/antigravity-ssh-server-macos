@@ -22,7 +22,9 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configuration
-COMMIT_ID="1.23.2-15487b3041e65228cae24980a3f796c905ef582c"
+COMMIT_ID="2.0.1-bf9a033f33934fb4496d7eebed52486272437c3a"
+VSCODE_VERSION="1.107.0"
+SERVER_COMMIT_ID="${COMMIT_ID}"
 NODE_VERSION="v22.11.0"
 
 # Parse arguments
@@ -51,20 +53,20 @@ trap "rm -rf $TEMP_DIR" EXIT
 # ============================================================================
 echo -e "${YELLOW}Step 1: Checking server prerequisites...${NC}"
 
-echo "  Checking for Node.js on server..."
-if ! ssh "$REMOTE_HOST" "zsh -lic 'command -v node'" > /dev/null 2>&1; then
-    echo -e "${RED}  Error: Node.js not found on server${NC}"
-    echo "  Install on server: brew install node"
-    exit 1
-fi
-echo -e "${GREEN}  ✓ Node.js found${NC}"
+echo "  Checking for Node.js on server... (Skipped, using provided binary)"
+# if ! ssh -o StrictHostKeyChecking=no "$REMOTE_HOST" "zsh -lic 'command -v node'" > /dev/null 2>&1; then
+#     echo -e "${RED}  Error: Node.js not found on server${NC}"
+#     echo "  Install on server: brew install node"
+#     exit 1
+# fi
+echo -e "${GREEN}  ✓ Node.js check skipped${NC}"
 
-echo "  Checking for npm on server..."
-if ! ssh "$REMOTE_HOST" "zsh -lic 'command -v npm'" > /dev/null 2>&1; then
-    echo -e "${RED}  Error: npm not found on server${NC}"
-    exit 1
-fi
-echo -e "${GREEN}  ✓ npm found${NC}"
+echo "  Checking for npm on server... (Skipped, using provided modules)"
+# if ! ssh -o StrictHostKeyChecking=no "$REMOTE_HOST" "zsh -lic 'command -v npm'" > /dev/null 2>&1; then
+#     echo -e "${RED}  Error: npm not found on server${NC}"
+#     exit 1
+# fi
+echo -e "${GREEN}  ✓ npm check skipped${NC}"
 
 echo ""
 
@@ -118,7 +120,7 @@ echo -e "${GREEN}  ✓ Node.js binary replaced${NC}"
 
 # SURGICAL REPLACEMENT: Native Modules from local app
 echo "  Surgically replacing native modules from local Antigravity app..."
-LOCAL_APP_RESOURCES="/Applications/Antigravity.app/Contents/Resources/app"
+LOCAL_APP_RESOURCES="/Applications/Antigravity IDE.app/Contents/Resources/app"
 SERVER_NODE_MODULES="$TEMP_DIR/server/node_modules"
 
 if [ -d "$LOCAL_APP_RESOURCES" ]; then
@@ -130,6 +132,8 @@ if [ -d "$LOCAL_APP_RESOURCES" ]; then
     cp "$LOCAL_APP_RESOURCES/node_modules/node-pty/build/Release/pty.node" "$SERVER_NODE_MODULES/node-pty/build/Release/pty.node" 2>/dev/null || \
     cp "$LOCAL_APP_RESOURCES/node_modules/node-pty/prebuilds/darwin-arm64/pty.node" "$SERVER_NODE_MODULES/node-pty/build/Release/pty.node"
     
+    cp "$LOCAL_APP_RESOURCES/node_modules/node-pty/build/Release/spawn-helper" "$SERVER_NODE_MODULES/node-pty/build/Release/spawn-helper" 2>/dev/null || true
+
     echo -e "${GREEN}  ✓ Native modules replaced from local app${NC}"
     
     # Language Server
@@ -137,15 +141,22 @@ if [ -d "$LOCAL_APP_RESOURCES" ]; then
     LOCAL_EXT_BIN="$LOCAL_APP_RESOURCES/extensions/antigravity/bin"
     SERVER_EXT_BIN="$TEMP_DIR/server/extensions/antigravity/bin"
     
-    cp "$LOCAL_EXT_BIN/language_server_macos_x64" "$SERVER_EXT_BIN/language_server_macos_x64"
-    # Create the symlink that the extension is looking for (language_server_macos_arm)
-    ln -sf "language_server_macos_x64" "$SERVER_EXT_BIN/language_server_macos_arm"
-    # Also link to the old name just in case
-    ln -sf "language_server_macos_x64" "$SERVER_EXT_BIN/language_server_linux_arm"
-    
-    echo -e "${GREEN}  ✓ Language server replaced and aliased${NC}"
+    mkdir -p "$SERVER_EXT_BIN"
+    if [ -f "$LOCAL_EXT_BIN/language_server_macos_arm" ]; then
+        cp "$LOCAL_EXT_BIN/language_server_macos_arm" "$SERVER_EXT_BIN/language_server_macos_arm"
+        ln -sf "language_server_macos_arm" "$SERVER_EXT_BIN/language_server_macos_x64"
+        ln -sf "language_server_macos_arm" "$SERVER_EXT_BIN/language_server_linux_arm"
+        echo -e "${GREEN}  ✓ Language server replaced and aliased (arm64)${NC}"
+    elif [ -f "$LOCAL_EXT_BIN/language_server_macos_x64" ]; then
+        cp "$LOCAL_EXT_BIN/language_server_macos_x64" "$SERVER_EXT_BIN/language_server_macos_x64"
+        ln -sf "language_server_macos_x64" "$SERVER_EXT_BIN/language_server_macos_arm"
+        ln -sf "language_server_macos_x64" "$SERVER_EXT_BIN/language_server_linux_arm"
+        echo -e "${GREEN}  ✓ Language server replaced and aliased (x64)${NC}"
+    else
+        echo -e "${RED}  ⚠ Language server not found in local app!${NC}"
+    fi
 else
-    echo -e "${RED}  Error: Local Antigravity.app not found. Cannot perform surgical extraction.${NC}"
+    echo -e "${RED}  Error: Local Antigravity IDE.app not found. Cannot perform surgical extraction.${NC}"
     exit 1
 fi
 
@@ -198,7 +209,9 @@ set -e
 
 COMMIT_ID="SERVER_COMMIT_ID_PLACEHOLDER"
 COMMIT_HASH="SERVER_COMMIT_HASH_PLACEHOLDER"
-SERVER_DIR="$HOME/.antigravity-server/bin/${COMMIT_ID}"
+SERVER_DATA_DIR_NEW="$HOME/.antigravity-ide-server"
+SERVER_DATA_DIR_OLD="$HOME/.antigravity-server"
+SERVER_DIR="$SERVER_DATA_DIR_NEW/bin/${COMMIT_ID}"
 TEMP_DIR="/tmp/antigravity-server-install"
 
 echo "  Installing to $SERVER_DIR"
@@ -217,19 +230,27 @@ tar -xzf "$TEMP_DIR/server-package.tar.gz" -C "$SERVER_DIR"
 # Rebuild native modules
 echo "  Rebuilding native modules..."
 cd "$SERVER_DIR"
-npm rebuild @vscode/spdlog @parcel/watcher > /dev/null 2>&1
+npm rebuild @vscode/spdlog @parcel/watcher node-pty > /dev/null 2>&1 || true
 
 # Sign binaries
 echo "  Signing binaries..."
 codesign --force --deep --sign - "$SERVER_DIR/node" 2>/dev/null || true
-find "$SERVER_DIR/node_modules/@vscode/spdlog" -name "*.node" -exec codesign --force --sign - {} \; 2>/dev/null || true
-find "$SERVER_DIR/node_modules/@parcel/watcher" -name "*.node" -exec codesign --force --sign - {} \; 2>/dev/null || true
+find "$SERVER_DIR/node_modules" -name "*.node" -exec codesign --force --sign - {} \; 2>/dev/null || true
+find "$SERVER_DIR/node_modules" -name "spawn-helper" -exec codesign --force --sign - {} \; 2>/dev/null || true
 
 # Clear quarantine
 xattr -dr com.apple.quarantine "$SERVER_DIR" 2>/dev/null || true
 
-# Create symlink for compatibility
-ln -sf "$SERVER_DIR" "$HOME/.antigravity-server/bin/latest" 2>/dev/null || true
+# Create symlinks for compatibility
+if [ ! -L "$SERVER_DATA_DIR_OLD" ] && [ ! -d "$SERVER_DATA_DIR_OLD" ]; then
+    ln -nsf "$SERVER_DATA_DIR_NEW" "$SERVER_DATA_DIR_OLD"
+fi
+mkdir -p "$SERVER_DATA_DIR_NEW/bin"
+
+# DO NOT create 1.107.0-* engine or 'latest' symlinks in bin/.
+# This avoids triggering the client's destructive clean_up_old_servers loop,
+# which uses a BSD-incompatible find command on macOS and deletes active server tokens.
+# The 2.0.1 client only looks for and matches the physical "${COMMIT_ID}" directory.
 
 echo "  ✓ Server installed successfully"
 
@@ -239,7 +260,7 @@ echo "  Server version: $VERSION_OUTPUT"
 REMOTESCRIPT
 
 # Replace placeholders
-sed -i.bak "s/SERVER_COMMIT_ID_PLACEHOLDER/${COMMIT_ID}/" "$TEMP_DIR/remote-install.sh"
+sed -i.bak "s/SERVER_COMMIT_ID_PLACEHOLDER/${SERVER_COMMIT_ID}/" "$TEMP_DIR/remote-install.sh"
 sed -i.bak "s/SERVER_COMMIT_HASH_PLACEHOLDER/${COMMIT_HASH}/" "$TEMP_DIR/remote-install.sh"
 rm -f "$TEMP_DIR/remote-install.sh.bak"
 chmod +x "$TEMP_DIR/remote-install.sh"
@@ -261,14 +282,14 @@ echo -e "${GREEN}  ✓ Package created: ${PACKAGE_SIZE}${NC}"
 
 # Upload files to remote server
 echo "  Uploading files to $REMOTE_HOST..."
-ssh "$REMOTE_HOST" "mkdir -p /tmp/antigravity-server-install"
-scp -q "$TEMP_DIR/server-package.tar.gz" "$REMOTE_HOST:/tmp/antigravity-server-install/server-package.tar.gz"
-scp -q "$TEMP_DIR/remote-install.sh" "$REMOTE_HOST:/tmp/antigravity-server-install/remote-install.sh"
+ssh -o StrictHostKeyChecking=no "$REMOTE_HOST" "mkdir -p /tmp/antigravity-server-install"
+scp -o StrictHostKeyChecking=no -q "$TEMP_DIR/server-package.tar.gz" "$REMOTE_HOST:/tmp/antigravity-server-install/server-package.tar.gz"
+scp -o StrictHostKeyChecking=no -q "$TEMP_DIR/remote-install.sh" "$REMOTE_HOST:/tmp/antigravity-server-install/remote-install.sh"
 echo -e "${GREEN}  ✓ Upload complete${NC}"
 
 # Execute installation on remote
 echo "  Running installation on $REMOTE_HOST..."
-ssh "$REMOTE_HOST" "zsh -lic 'bash /tmp/antigravity-server-install/remote-install.sh'"
+ssh -o StrictHostKeyChecking=no "$REMOTE_HOST" "zsh -lic 'bash /tmp/antigravity-server-install/remote-install.sh'"
 echo -e "${GREEN}  ✓ Server installed${NC}"
 
 echo ""
@@ -279,21 +300,21 @@ echo ""
 echo -e "${YELLOW}Step 6: Restarting server on remote...${NC}"
 
 # Kill existing server processes
-ssh "$REMOTE_HOST" "pkill -f antigravity-server || true"
+ssh -o StrictHostKeyChecking=no "$REMOTE_HOST" "pkill -f antigravity-server || true"
 
 sleep 2
 
 echo -e "${GREEN}  ✓ Server restarted${NC}"
 
 # Cleanup remote temp files
-ssh "$REMOTE_HOST" "rm -f /tmp/antigravity-*.sh /tmp/antigravity-*.tar.gz 2>/dev/null; rm -rf /tmp/antigravity-server-install 2>/dev/null" 2>/dev/null || true
+ssh -o StrictHostKeyChecking=no "$REMOTE_HOST" "rm -f /tmp/antigravity-*.sh /tmp/antigravity-*.tar.gz 2>/dev/null; rm -rf /tmp/antigravity-server-install 2>/dev/null" 2>/dev/null || true
 
 echo ""
 echo -e "${GREEN}=== Installation Complete ===${NC}"
 echo ""
 echo "Server installed on: ${GREEN}$REMOTE_HOST${NC}"
 echo "Version: ${GREEN}${COMMIT_ID}${NC}"
-echo "Location: ~/.antigravity-server/bin/${COMMIT_ID}"
+echo "Location: ~/.antigravity-ide-server/bin/${SERVER_COMMIT_ID}"
 echo ""
 echo "Next steps:"
 echo "  1. Open Antigravity on this client machine"
